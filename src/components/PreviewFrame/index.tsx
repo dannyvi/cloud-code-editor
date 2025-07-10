@@ -21,7 +21,7 @@ interface PreviewFrameProps {
 }
 
 export function PreviewFrame({ projectId }: PreviewFrameProps) {
-  const [previewUrl, setPreviewUrl] = useState<string>('');
+  const [previewUrl, setPreviewUrl] = useState<string>('about:blank');
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const [viewMode, setViewMode] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
@@ -32,7 +32,7 @@ export function PreviewFrame({ projectId }: PreviewFrameProps) {
     if (projectId) {
       setPreviewUrl(`/api/preview/${projectId}`);
     } else {
-      // 默认预览 URL
+      // 默认预览 URL，避免空字符串
       setPreviewUrl('about:blank');
     }
   }, [projectId]);
@@ -100,15 +100,17 @@ export function PreviewFrame({ projectId }: PreviewFrameProps) {
 
     return (
       <div className="h-full flex items-center justify-center bg-gray-50">
-        <iframe
-          ref={iframeRef}
-          src={previewUrl}
-          className="border-0 bg-white shadow-lg"
-          style={getViewportSize()}
-          title="预览窗口"
-          onLoad={() => setIsLoading(false)}
-          onError={() => setError('预览加载失败')}
-        />
+        {previewUrl && previewUrl !== '' && (
+          <iframe
+            ref={iframeRef}
+            src={previewUrl}
+            className="border-0 bg-white shadow-lg"
+            style={getViewportSize()}
+            title="预览窗口"
+            onLoad={() => setIsLoading(false)}
+            onError={() => setError('预览加载失败')}
+          />
+        )}
       </div>
     );
   };

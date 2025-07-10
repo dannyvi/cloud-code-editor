@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 // import { k8sApi } from '@/lib/kubernetes';
+import { updateProjectFile } from '@/lib/events';
 
 export async function POST(request: NextRequest) {
   try {
@@ -25,6 +26,9 @@ export async function POST(request: NextRequest) {
       size: content?.length || 0,
       language,
     };
+
+    // 通过 SSE 广播文件更新
+    updateProjectFile(projectId, filename, content || '');
 
     // TODO: 触发热重载
     // await triggerHotReload(projectId);
