@@ -1,103 +1,121 @@
-import Image from "next/image";
+import Link from "next/link";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Code, Play, Globe, Zap, Shield, Settings } from "lucide-react";
 
 export default function Home() {
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900">
+      <div className="container mx-auto px-4 py-16">
+        {/* Header */}
+        <div className="text-center mb-16">
+          <div className="flex items-center justify-center mb-8">
+            <div className="p-3 bg-white/10 rounded-full backdrop-blur-sm">
+              <Code className="h-12 w-12 text-white" />
+            </div>
+          </div>
+          <h1 className="text-5xl font-bold text-white mb-6">
+            Cloud Code Editor
+          </h1>
+          <p className="text-xl text-blue-100 mb-8 max-w-2xl mx-auto">
+            在线代码编辑器，支持实时预览和容器化运行环境。
+            像 CodeSandbox 一样简单，但完全由你控制。
+          </p>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <Link href="/editor">
+              <Button size="lg" className="bg-white text-blue-900 hover:bg-blue-50 font-semibold">
+                <Play className="mr-2 h-5 w-5" />
+                开始编码
+              </Button>
+            </Link>
+            <Button size="lg" variant="outline" className="border-white text-white hover:bg-white/10">
+              <Globe className="mr-2 h-5 w-5" />
+              查看文档
+            </Button>
+          </div>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+
+        {/* Features */}
+        <div className="grid md:grid-cols-3 gap-8 mb-16">
+          <Card className="bg-white/10 border-white/20 backdrop-blur-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center text-white">
+                <Zap className="mr-2 h-5 w-5" />
+                实时预览
+              </CardTitle>
+              <CardDescription className="text-blue-100">
+                代码修改即时反映在预览窗口中
+              </CardDescription>
+            </CardHeader>
+          </Card>
+
+          <Card className="bg-white/10 border-white/20 backdrop-blur-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center text-white">
+                <Shield className="mr-2 h-5 w-5" />
+                容器化运行
+              </CardTitle>
+              <CardDescription className="text-blue-100">
+                基于 Kubernetes 的安全隔离环境
+              </CardDescription>
+            </CardHeader>
+          </Card>
+
+          <Card className="bg-white/10 border-white/20 backdrop-blur-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center text-white">
+                <Settings className="mr-2 h-5 w-5" />
+                多语言支持
+              </CardTitle>
+              <CardDescription className="text-blue-100">
+                支持 JavaScript、Python、Java 等多种语言
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </div>
+
+        {/* Quick Start */}
+        <Card className="bg-white/10 border-white/20 backdrop-blur-sm max-w-4xl mx-auto">
+          <CardHeader>
+            <CardTitle className="text-white text-center">快速开始</CardTitle>
+            <CardDescription className="text-blue-100 text-center">
+              三步开始你的编程之旅
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid md:grid-cols-3 gap-8">
+              <div className="text-center">
+                <div className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <span className="text-white font-bold">1</span>
+                </div>
+                <h3 className="text-white font-semibold mb-2">选择语言</h3>
+                <p className="text-blue-100 text-sm">选择你熟悉的编程语言</p>
+              </div>
+              <div className="text-center">
+                <div className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <span className="text-white font-bold">2</span>
+                </div>
+                <h3 className="text-white font-semibold mb-2">编写代码</h3>
+                <p className="text-blue-100 text-sm">在强大的编辑器中编写代码</p>
+              </div>
+              <div className="text-center">
+                <div className="w-12 h-12 bg-blue-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <span className="text-white font-bold">3</span>
+                </div>
+                <h3 className="text-white font-semibold mb-2">实时预览</h3>
+                <p className="text-blue-100 text-sm">立即看到运行结果</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Footer */}
+        <footer className="text-center mt-16 pt-8 border-t border-white/20">
+          <p className="text-blue-100">
+            使用 Next.js、Monaco Editor 和 Kubernetes 构建
+          </p>
+        </footer>
+      </div>
     </div>
   );
 }
