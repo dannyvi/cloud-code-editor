@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -22,18 +22,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-
-interface FileItem {
-  id: string;
-  name: string;
-  type: 'file' | 'folder';
-  children?: FileItem[];
-  isOpen?: boolean;
-  language?: string;
-}
+import { FileTreeNode, FileManager } from '@/lib/file-manager';
 
 interface FileExplorerProps {
+  fileTree: FileTreeNode[];
   onFileSelect: (filename: string) => void;
+  currentFile?: string;
+  projectId: string;
+  onFileCreated?: () => void; // 回调函数，用于刷新文件树
 }
 
 const getFileIcon = (filename: string) => {
@@ -60,77 +56,96 @@ const getFileIcon = (filename: string) => {
   }
 };
 
-export function FileExplorer({ onFileSelect }: FileExplorerProps) {
-  const [files, setFiles] = useState<FileItem[]>([
-    {
-      id: '1',
-      name: 'src',
-      type: 'folder',
-      isOpen: true,
-      children: [
-        { id: '2', name: 'index.js', type: 'file', language: 'javascript' },
-        { id: '3', name: 'app.js', type: 'file', language: 'javascript' },
-        { id: '4', name: 'style.css', type: 'file', language: 'css' },
-      ],
-    },
-    {
-      id: '5',
-      name: 'public',
-      type: 'folder',
-      isOpen: false,
-      children: [
-        { id: '6', name: 'index.html', type: 'file', language: 'html' },
-      ],
-    },
-    { id: '7', name: 'package.json', type: 'file', language: 'json' },
-    { id: '8', name: 'README.md', type: 'file', language: 'markdown' },
-  ]);
-
-  const [selectedFile, setSelectedFile] = useState<string>('');
+export function FileExplorer({ fileTree, onFileSelect, currentFile, projectId, onFileCreated }: FileExplorerProps) {
+  const [files, setFiles] = useState<FileTreeNode[]>(fileTree);
   const [newItemName, setNewItemName] = useState<string>('');
   const [isCreating, setIsCreating] = useState<boolean>(false);
+  const [creating, setCreating] = useState<boolean>(false);
 
-  const toggleFolder = (id: string) => {
-    setFiles(prev => 
-      prev.map(file => 
-        file.id === id ? { ...file, isOpen: !file.isOpen } : file
-      )
-    );
+  useEffect(() => {
+    setFiles(fileTree);
+  }, [fileTree]);
+
+  const toggleFolder = (path: string) => {
+    const updateNode = (nodes: FileTreeNode[]): FileTreeNode[] => {
+      return nodes.map(node => {
+        if (node.path === path) {
+          return { ...node, isOpen: !node.isOpen };
+        }
+        if (node.children) {
+          return { ...node, children: updateNode(node.children) };
+        }
+        return node;
+      });
+    };
+    setFiles(prev => updateNode(prev));
   };
 
-  const handleFileClick = (file: FileItem) => {
+  const handleFileClick = (file: FileTreeNode) => {
     if (file.type === 'file') {
-      setSelectedFile(file.name);
-      onFileSelect(file.name);
+      onFileSelect(file.path);
     } else {
-      toggleFolder(file.id);
+      toggleFolder(file.path);
     }
   };
 
-  const createNewFile = () => {
-    if (newItemName.trim()) {
-      const newFile: FileItem = {
-        id: Date.now().toString(),
-        name: newItemName,
-        type: 'file',
-        language: 'javascript',
-      };
-      setFiles(prev => [...prev, newFile]);
-      setNewItemName('');
-      setIsCreating(false);
+  const createNewFile = async () => {
+    if (!newItemName.trim() || creating) return;
+    
+    setCreating(true);
+    try {
+      // 调用后端API创建文件
+      const success = await FileManager.saveFile(
+        projectId,
+        newItemName,
+        '', // 空内容
+        FileManager.getMimeType(newItemName)
+      );
+      
+      if (success) {
+        // 创建成功后重置状态
+        setNewItemName('');
+        setIsCreating(false);
+        // 通知父组件刷新文件树
+        if (onFileCreated) {
+          onFileCreated();
+        }
+        console.log('文件创建成功:', newItemName);
+      } else {
+        console.error('文件创建失败:', newItemName);
+      }
+    } catch (error) {
+      console.error('文件创建异常:', error);
+    } finally {
+      setCreating(false);
     }
   };
 
-  const deleteFile = (id: string) => {
-    setFiles(prev => prev.filter(file => file.id !== id));
+  const deleteFile = async (path: string) => {
+    try {
+      // 调用后端API删除文件
+      const success = await FileManager.deleteFile(projectId, path);
+      
+      if (success) {
+        // 删除成功后通知父组件刷新文件树
+        if (onFileCreated) {
+          onFileCreated();
+        }
+        console.log('文件删除成功:', path);
+      } else {
+        console.error('文件删除失败:', path);
+      }
+    } catch (error) {
+      console.error('文件删除异常:', error);
+    }
   };
 
-  const renderFileItem = (file: FileItem, depth: number = 0) => {
+  const renderFileItem = (file: FileTreeNode, depth: number = 0) => {
     return (
       <div key={file.id} className="select-none">
         <div
           className={`flex items-center px-2 py-1 rounded-sm cursor-pointer hover:bg-accent group ${
-            selectedFile === file.name ? 'bg-accent' : ''
+            currentFile === file.path ? 'bg-accent' : ''
           }`}
           style={{ paddingLeft: `${depth * 16 + 8}px` }}
           onClick={() => handleFileClick(file)}
@@ -169,7 +184,7 @@ export function FileExplorer({ onFileSelect }: FileExplorerProps) {
               <DropdownMenuItem
                 onClick={(e) => {
                   e.stopPropagation();
-                  deleteFile(file.id);
+                  deleteFile(file.path);
                 }}
                 className="text-red-600"
               >
@@ -223,8 +238,9 @@ export function FileExplorer({ onFileSelect }: FileExplorerProps) {
                 onClick={createNewFile}
                 size="sm"
                 className="h-6 px-2 text-xs"
+                disabled={creating || !newItemName.trim()}
               >
-                创建
+                {creating ? '创建中...' : '创建'}
               </Button>
               <Button
                 onClick={() => {
@@ -243,7 +259,13 @@ export function FileExplorer({ onFileSelect }: FileExplorerProps) {
       </div>
       
       <div className="p-2 space-y-1 overflow-y-auto">
-        {files.map(file => renderFileItem(file))}
+        {files.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground text-sm">
+            暂无文件
+          </div>
+        ) : (
+          files.map(file => renderFileItem(file))
+        )}
       </div>
     </Card>
   );
