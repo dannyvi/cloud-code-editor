@@ -154,7 +154,7 @@ export async function syncFileUpdate(
 // 发送容器操作到服务器
 export async function sendContainerOperation(
   projectId: string,
-  operation: 'start' | 'stop' | 'restart'
+  operation: 'start' | 'stop' | 'restart' | 'sync'
 ): Promise<boolean> {
   try {
     const response = await fetch(`/api/containers/${operation}`, {

@@ -22,11 +22,20 @@ export async function POST(request: NextRequest) {
       
       if (existingPod && existingPod.status?.phase === 'Running') {
         updateContainerStatus(projectId, 'running', '容器已在运行');
+        
+        // 确保服务存在，并在生产环境创建 Ingress
+        await containerManager.createService(projectId);
+        if (process.env.NODE_ENV !== 'development') {
+          await containerManager.createIngress(projectId);
+        }
+        const projectUrl = containerManager.getProjectUrl(projectId);
+        
         return NextResponse.json({
           success: true,
           data: {
             projectId,
             status: 'running',
+            url: projectUrl,
             message: '容器已在运行',
             timestamp: Date.now(),
           },
@@ -43,11 +52,34 @@ export async function POST(request: NextRequest) {
     // 创建服务以暴露容器
     await containerManager.createService(projectId);
 
-    // 模拟容器启动过程
-    setTimeout(() => {
-      updateContainerStatus(projectId, 'running', '容器启动成功');
-      notifyPreviewUpdate(projectId);
-    }, 3000);
+    // 只在生产环境创建 Ingress，开发环境使用 NodePort
+    if (process.env.NODE_ENV !== 'development') {
+      await containerManager.createIngress(projectId);
+    }
+
+    // 异步处理容器启动和文件同步
+    setTimeout(async () => {
+      try {
+        updateContainerStatus(projectId, 'syncing', '正在同步项目文件...');
+        
+        // 等待容器完全启动
+        await new Promise(resolve => setTimeout(resolve, 5000));
+        
+        // 同步项目文件到容器
+        await containerManager.syncProjectFilesToContainer(projectId);
+        
+        updateContainerStatus(projectId, 'running', '容器启动成功');
+        notifyPreviewUpdate(projectId);
+        
+        console.log(`项目 ${projectId} 启动完成`);
+      } catch (error) {
+        console.error(`项目 ${projectId} 启动失败:`, error);
+        updateContainerStatus(projectId, 'error', '项目启动失败');
+      }
+    }, 1000);
+
+    // 获取项目访问URL
+    const projectUrl = containerManager.getProjectUrl(projectId);
 
     return NextResponse.json({
       success: true,
@@ -56,6 +88,7 @@ export async function POST(request: NextRequest) {
         podName: pod.metadata?.name,
         status: 'creating',
         runtime,
+        url: projectUrl,
         createdAt: new Date().toISOString(),
         message: '容器正在创建中',
       },
