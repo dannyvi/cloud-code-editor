@@ -52,12 +52,19 @@ export async function GET(request: NextRequest) {
         message += ` (${containerInfo.state.waiting.reason})`;
       }
 
+      // 获取项目访问 URL（当容器运行时）
+      let projectUrl = '';
+      if (detailedStatus === 'running') {
+        projectUrl = containerManager.getProjectUrl(projectId);
+      }
+
       return NextResponse.json({
         success: true,
         data: {
           projectId,
           status: detailedStatus,
           message,
+          url: projectUrl,
           phase: status,
           podName: pod.metadata?.name,
           createdAt: pod.metadata?.creationTimestamp,
