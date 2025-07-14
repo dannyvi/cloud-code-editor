@@ -138,21 +138,3 @@ CREATE POLICY "Users can delete own project files"
             AND projects.owner_id = auth.uid()
         )
     );
-
--- 插入一些示例数据（可选）
-INSERT INTO projects (name, description, template, is_public) VALUES
-    ('Hello World JS', '一个简单的 JavaScript 示例项目', 'vanilla-js', true),
-    ('React 计数器', '使用 React 构建的计数器应用', 'react', true),
-    ('Vue 示例', 'Vue.js 快速开始模板', 'vue', true),
-    ('Node.js API', 'Express.js 后端 API 示例', 'node', true);
-
--- 为示例项目添加文件（这里只添加一个简单示例）
-INSERT INTO project_files (project_id, path, content, size, mime_type) 
-SELECT 
-    p.id,
-    'README.md',
-    '# ' || p.name || E'\n\n' || p.description || E'\n\n点击"开始编码"按钮开始编辑这个项目！',
-    LENGTH('# ' || p.name || E'\n\n' || p.description || E'\n\n点击"开始编码"按钮开始编辑这个项目！'),
-    'text/markdown'
-FROM projects p 
-WHERE p.name IN ('Hello World JS', 'React 计数器', 'Vue 示例', 'Node.js API');
