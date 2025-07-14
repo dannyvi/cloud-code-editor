@@ -255,6 +255,7 @@ start_nextjs_project
           {
             name: 'code-runner',
             image: this.getImageByRuntime(runtime),
+            imagePullPolicy: 'IfNotPresent', // 优先使用本地镜像
             command: ['/bin/sh'],
             args: ['/scripts/startup.sh'],
             workingDir: '/app',
@@ -845,7 +846,7 @@ start_nextjs_project
   // 根据运行时选择镜像 - 只支持Next.js
   private getImageByRuntime(runtime: string): string {
     // 只支持Next.js，使用预构建镜像
-    return 'node:20-alpine';
+    return 'nextjs-base:latest';
   }
 }
 
