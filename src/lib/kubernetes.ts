@@ -79,295 +79,128 @@ export class ContainerManager {
     }
   }
 
-  // 生成启动脚本
+  // 生成Next.js专用启动脚本
   private generateStartupScript(runtime: string): string {
-    switch (runtime) {
-      case 'node':
-        return `#!/bin/sh
-echo "🚀 启动 Node.js 项目..."
+    return `#!/bin/sh
+echo "🚀 启动 Next.js Cloud Code Editor..."
 
 # 确保工作目录存在
-mkdir -p /workspace
-cd /workspace
+mkdir -p /app
+cd /app
 
 # 等待项目文件同步完成
 echo "⏳ 等待项目文件同步..."
-timeout=120
+timeout=300
 while [ $timeout -gt 0 ]; do
-  # 检查是否有项目文件标识
-  if [ -f "package.json" ] || [ -f "index.html" ] || [ -f "index.js" ] || [ -f "src/App.js" ] || [ -f "src/App.jsx" ] || [ -f "src/App.tsx" ]; then
-    echo "✅ 检测到项目文件"
+  # 检查是否有Next.js项目文件
+  if [ -f "package.json" ]; then
+    echo "✅ 检测到 package.json 文件"
     break
   fi
-  sleep 1
-  timeout=$((timeout-1))
-  if [ $((timeout % 10)) -eq 0 ]; then
-    echo "等待项目文件... 剩余 $timeout 秒"
+  sleep 2
+  timeout=$((timeout-2))
+  if [ $((timeout % 20)) -eq 0 ]; then
+    echo "等待项目文件同步... 剩余 $timeout 秒"
   fi
 done
 
 if [ $timeout -eq 0 ]; then
-  echo "⚠️  超时未检测到项目文件，创建默认项目"
+  echo "❌ 超时未检测到项目文件，容器启动失败"
+  echo "请确保项目文件已正确同步到容器"
+  exit 1
 fi
 
-# 检测项目类型并启动
-detect_and_start_project() {
-  echo "🔍 检测项目类型..."
+# Next.js 项目启动函数
+start_nextjs_project() {
+  echo "▲ Next.js Cloud Code Editor 专用环境"
+    
+  # 智能依赖缓存检查
+  echo "📦 检查项目依赖..."
   
+  PACKAGE_HASH=""
   if [ -f "package.json" ]; then
-    echo "📦 发现 package.json，分析项目类型..."
-    
-    # 读取package.json中的脚本和依赖
-    if grep -q '"react"' package.json; then
-      echo "⚛️  检测到 React 项目"
-      PROJECT_TYPE="react"
-    elif grep -q '"next"' package.json; then
-      echo "▲ 检测到 Next.js 项目" 
-      PROJECT_TYPE="nextjs"
-    elif grep -q '"vue"' package.json; then
-      echo "🌿 检测到 Vue 项目"
-      PROJECT_TYPE="vue"
-    elif grep -q '"express"' package.json; then
-      echo "🚂 检测到 Express 项目"
-      PROJECT_TYPE="express"
-    elif grep -q '"@angular"' package.json; then
-      echo "🅰️  检测到 Angular 项目"
-      PROJECT_TYPE="angular"
-    else
-      echo "📄 检测到普通 Node.js 项目"
-      PROJECT_TYPE="nodejs"
+    PACKAGE_HASH=$(sha256sum package.json | cut -d' ' -f1)
+  fi
+  
+  CACHE_FILE="/app/.deps-cache"
+  NEED_INSTALL=true
+  
+  if [ -f "$CACHE_FILE" ] && [ -d "node_modules" ]; then
+    CACHED_HASH=$(cat "$CACHE_FILE" 2>/dev/null || echo "")
+    if [ "$PACKAGE_HASH" = "$CACHED_HASH" ]; then
+      echo "✅ 依赖缓存命中，跳过安装"
+      NEED_INSTALL=false
     fi
+  fi
     
-    # 安装依赖
-    echo "📦 安装项目依赖..."
+  if [ "$NEED_INSTALL" = true ]; then
+    echo "📦 安装 Next.js 依赖..."
     
-    # 强制重新安装所有依赖
-    rm -rf node_modules package-lock.json yarn.lock 2>/dev/null || true
-    npm install --no-audit --no-fund --verbose
+    # 配置npm镜像源和缓存优化
+    echo "🌐 配置npm镜像源: 淘宝镜像源"
+    npm config set registry https://registry.npmmirror.com/
+    npm config set cache /app/.npm-cache
+    npm config set prefer-offline true
+    npm config set audit false
+    npm config set fund false
+    
+    echo "当前工作目录: $(pwd)"
+    echo "当前目录内容: $(ls -la)"
+    
+    # 再次确认package.json存在（防止竞争条件）
+    if [ ! -f "package.json" ]; then
+      echo "⚠️  package.json 不存在，等待文件同步完成..."
+      sleep 10
+      if [ ! -f "package.json" ]; then
+        echo "❌ package.json 仍然不存在，无法安装依赖"
+        echo "最终目录内容: $(ls -la)"
+        exit 1
+      fi
+    fi
+
+    # 创建缓存目录
+    mkdir -p /app/.npm-cache
+    
+    # 智能安装依赖
+    if [ -f "package-lock.json" ]; then
+      npm ci --cache /app/.npm-cache
+    else
+      npm install --cache /app/.npm-cache
+    fi
     
     # 验证依赖安装
     if [ ! -d "node_modules" ]; then
       echo "❌ 依赖安装失败"
-      create_fallback_server
-      return
+      exit 1
     fi
     
-    echo "✅ 依赖安装完成"
-    
-    # 根据项目类型和package.json脚本启动（优先dev命令）
-    echo "🎯 启动项目..."
-    
-    # 检查React项目特殊处理
-    if [ "$PROJECT_TYPE" = "react" ]; then
-      if [ -f "node_modules/.bin/react-scripts" ]; then
-        echo "运行: npm run start"
-        exec npm run start
-      elif grep -q '"dev"' package.json; then
-        echo "运行: npm run dev"
-        exec npm run dev
-      else
-        echo "⚠️  React项目但缺少启动脚本，尝试直接启动"
-        exec npx react-scripts start
-      fi
-    elif [ "$PROJECT_TYPE" = "nextjs" ]; then
-      if grep -q '"dev"' package.json; then
-        echo "运行: npm run dev"
-        exec npm run dev
-      else
-        echo "运行: npx next dev"
-        exec npx next dev
-      fi
-    elif [ "$PROJECT_TYPE" = "vue" ]; then
-      if grep -q '"dev"' package.json; then
-        echo "运行: npm run dev"
-        exec npm run dev
-      elif grep -q '"serve"' package.json; then
-        echo "运行: npm run serve"
-        exec npm run serve
-      else
-        echo "运行: npx vue-cli-service serve"
-        exec npx vue-cli-service serve
-      fi
-    else
-      # 其他项目类型，优先dev命令
-      if grep -q '"dev"' package.json; then
-        echo "运行: npm run dev"
-        exec npm run dev
-      elif grep -q '"start"' package.json; then
-        echo "运行: npm run start"  
-        exec npm run start
-      elif grep -q '"serve"' package.json; then
-        echo "运行: npm run serve"
-        exec npm run serve
-      elif [ -f "index.js" ]; then
-        echo "运行: node index.js"
-        exec node index.js
-      elif [ -f "app.js" ]; then
-        echo "运行: node app.js"
-        exec node app.js
-      elif [ -f "server.js" ]; then
-        echo "运行: node server.js"
-        exec node server.js
-      else
-        echo "❌ 未找到合适的启动方式"
-        create_fallback_server
-      fi
-    fi
-    
-  elif [ -f "index.html" ]; then
-    echo "🌐 检测到静态网站项目"
-    start_static_server
-    
-  else
-    echo "❓ 未检测到已知项目类型，创建默认服务器"
-    create_fallback_server
+    # 保存依赖缓存标记
+    echo "$PACKAGE_HASH" > "$CACHE_FILE"
+    echo "✅ Next.js 依赖安装完成"
   fi
-}
-
-# 启动静态文件服务器
-start_static_server() {
-  echo "🌐 启动静态文件服务器..."
+    
+  # 启动 Next.js 开发服务器（Turbopack）
+  echo "🚀 启动 Next.js 应用 (Turbopack)..."
   
-  # 创建简单的静态服务器
-  cat > server.js << 'EOF'
-const express = require('express');
-const path = require('path');
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-// 静态文件服务
-app.use(express.static('.'));
-
-// SPA支持 - 所有路由都返回index.html
-app.get('*', (req, res) => {
-  if (req.path.includes('.')) {
-    res.status(404).send('File not found');
-  } else {
-    res.sendFile(path.join(__dirname, 'index.html'));
-  }
-});
-
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(\`🌟 Static server running on http://0.0.0.0:\${PORT}\`);
-});
-EOF
-
-  # 先安装express
-  npm init -y > /dev/null 2>&1
-  npm install express --no-audit --no-fund
-  exec node server.js
+  while true; do
+    echo "$(date): 启动 Next.js 开发服务器 (Turbopack)"
+    
+    # 优先使用package.json中的dev脚本
+    if grep -q '"dev"' package.json; then
+      npm run dev
+    else
+      # 后备启动命令
+      npx next dev --turbopack --hostname 0.0.0.0 --port 3000
+    fi
+    
+    echo "$(date): Next.js 应用已停止，3秒后自动重启..."
+    sleep 3
+  done
 }
 
-# 创建回退服务器
-create_fallback_server() {
-  echo "📝 创建默认服务器..."
-  
-  cat > package.json << 'EOF'
-{
-  "name": "cloud-code-fallback",
-  "version": "1.0.0",
-  "scripts": { "start": "node index.js" },
-  "dependencies": { "express": "^4.18.2" }
-}
-EOF
-
-  cat > index.js << 'EOF'
-const express = require('express');
-const fs = require('fs');
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-app.use(express.static('.'));
-
-app.get('/', (req, res) => {
-  res.send(\`
-<!DOCTYPE html>
-<html>
-<head><title>Cloud Code Editor - 等待项目文件</title>
-<style>body{font-family:Arial;margin:40px;background:#f5f5f5;}
-.container{max-width:600px;margin:0 auto;background:white;padding:40px;border-radius:8px;text-align:center;}</style>
-</head>
-<body>
-<div class="container">
-<h1>🌟 Cloud Code Editor</h1>
-<p>容器已启动，等待项目文件部署...</p>
-<p>请点击编辑器中的"部署"按钮来同步您的项目文件。</p>
-<p><small>项目ID: \${process.env.PROJECT_ID}</small></p>
-</div></body></html>
-  \`);
-});
-
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(\`🌟 Fallback server running on http://0.0.0.0:\${PORT}\`);
-});
-EOF
-
-  npm install --no-audit --no-fund --silent
-  exec node index.js
-}
-
-# 执行检测和启动
-detect_and_start_project
+# 启动 Next.js 项目
+start_nextjs_project
 `;
-
-      case 'python':
-        return `#!/bin/sh
-set -e
-
-echo "🚀 启动 Python 项目..."
-
-cd /workspace
-
-# 等待项目文件
-timeout=60
-while [ $timeout -gt 0 ] && [ ! -f "requirements.txt" ] && [ ! -f "app.py" ] && [ ! -f "main.py" ]; do
-  sleep 1
-  timeout=$((timeout-1))
-done
-
-# 安装依赖
-if [ -f "requirements.txt" ]; then
-  echo "📦 安装依赖..."
-  pip install -r requirements.txt
-fi
-
-# 启动项目
-if [ -f "app.py" ]; then
-  python app.py
-elif [ -f "main.py" ]; then
-  python main.py
-else
-  echo "创建默认 Flask 应用"
-  cat > app.py << 'EOF'
-from flask import Flask, jsonify
-import os
-from datetime import datetime
-
-app = Flask(__name__)
-
-@app.route('/')
-def hello():
-    return jsonify({
-        'message': 'Hello from Cloud Code Editor!',
-        'timestamp': datetime.now().isoformat(),
-        'project': os.getenv('PROJECT_ID')
-    })
-
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=3000, debug=True)
-EOF
-  pip install flask
-  python app.py
-fi
-`;
-
-      default:
-        return `#!/bin/sh
-echo "🚀 启动项目..."
-cd /workspace
-tail -f /dev/null
-`;
-    }
   }
 
   // 创建代码编辑器容器
@@ -424,7 +257,7 @@ tail -f /dev/null
             image: this.getImageByRuntime(runtime),
             command: ['/bin/sh'],
             args: ['/scripts/startup.sh'],
-            workingDir: '/workspace',
+            workingDir: '/app',
             ports: [
               {
                 containerPort: 3000,
@@ -568,7 +401,61 @@ tail -f /dev/null
     });
   }
 
-  // 同步项目文件到容器
+  // 智能文件同步 - 检查文件变更
+  async syncProjectFilesToContainerSmart(projectId: string): Promise<{hasChanges: boolean, changedFiles: number}> {
+    console.log(`开始智能同步项目 ${projectId} 的文件...`);
+    
+    try {
+      // 从数据库获取项目文件
+      const { FileManager } = await import('@/lib/file-manager');
+      const files = await FileManager.getProjectFiles(projectId);
+      
+      if (!files || files.length === 0) {
+        console.log('项目无文件，跳过同步');
+        return { hasChanges: false, changedFiles: 0 };
+      }
+
+      const podName = `code-editor-${projectId}`;
+      let changedFiles = 0;
+      
+      // 检查每个文件是否需要更新
+      for (const file of files) {
+        // 确保检查的路径也在 /app 目录下
+        const targetPath = file.path.startsWith('/app/') ? file.path : `/app${file.path.startsWith('/') ? '' : '/'}${file.path}`;
+        
+        try {
+          // 获取容器中文件的hash
+          const containerHashCommand = ['sh', '-c', `sha256sum "${targetPath}" 2>/dev/null | cut -d' ' -f1 || echo "not_found"`];
+          const containerHash = await this.execInPod(projectId, containerHashCommand);
+          
+          // 计算数据库中文件的hash
+          const crypto = require('crypto');
+          const dbHash = crypto.createHash('sha256').update(file.content).digest('hex');
+          
+          if (containerHash.trim() !== dbHash) {
+            // 文件需要更新
+            await this.writeFileToContainer(projectId, file.path, file.content);
+            changedFiles++;
+            console.log(`文件已更新: ${file.path}`);
+          }
+        } catch (error) {
+          // 文件不存在或读取失败，直接写入
+          await this.writeFileToContainer(projectId, file.path, file.content);
+          changedFiles++;
+          console.log(`文件已创建: ${file.path}`);
+        }
+      }
+      
+      console.log(`智能同步完成，${changedFiles}个文件有变更`);
+      return { hasChanges: changedFiles > 0, changedFiles };
+      
+    } catch (error) {
+      console.error(`智能同步项目文件失败:`, error);
+      throw error;
+    }
+  }
+
+  // 传统文件同步（保持向后兼容）
   async syncProjectFilesToContainer(projectId: string): Promise<void> {
     console.log(`开始同步项目 ${projectId} 的文件到容器...`);
     
@@ -595,18 +482,21 @@ tail -f /dev/null
   // 将文件写入容器
   async writeFileToContainer(projectId: string, filePath: string, content: string): Promise<void> {
     try {
+      // 确保路径以 /app 开头
+      const targetPath = filePath.startsWith('/app/') ? filePath : `/app${filePath.startsWith('/') ? '' : '/'}${filePath}`;
+      
       // 确保目录存在
-      const dirPath = filePath.substring(0, filePath.lastIndexOf('/'));
+      const dirPath = targetPath.substring(0, targetPath.lastIndexOf('/'));
       if (dirPath) {
         const mkdirCommand = ['mkdir', '-p', dirPath];
         await this.execInPod(projectId, mkdirCommand);
       }
       
       // 写入文件内容
-      const writeCommand = ['sh', '-c', `cat > "${filePath}" << 'EOF'\n${content}\nEOF`];
+      const writeCommand = ['sh', '-c', `cat > "${targetPath}" << 'EOF'\n${content}\nEOF`];
       await this.execInPod(projectId, writeCommand);
       
-      console.log(`文件写入成功: ${filePath}`);
+      console.log(`文件写入成功: ${targetPath}`);
     } catch (error) {
       console.error(`写入文件失败 ${filePath}:`, error);
       throw error;
@@ -615,23 +505,130 @@ tail -f /dev/null
 
   // 从容器读取文件
   async readFileFromContainer(projectId: string, filePath: string): Promise<string> {
-    const command = ['cat', filePath];
+    // 确保路径以 /app 开头
+    const targetPath = filePath.startsWith('/app/') ? filePath : `/app${filePath.startsWith('/') ? '' : '/'}${filePath}`;
+    const command = ['cat', targetPath];
     return await this.execInPod(projectId, command);
   }
 
-  // 重启容器中的应用（发送重启信号）
+  // 安全重启容器中的应用
   async restartContainerApp(projectId: string): Promise<void> {
     try {
-      // 尝试通过信号重启应用
-      const restartCommand = ['pkill', '-f', 'node|python'];
-      await this.execInPod(projectId, restartCommand);
+      console.log(`开始重启容器应用: ${projectId}`);
       
-      // 等待一下让进程重启
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // 1. 检查当前运行的进程
+      const psCommand = ['ps', 'aux'];
+      const processes = await this.execInPod(projectId, psCommand);
+      console.log('当前运行进程:', processes);
+      
+      // 2. 智能识别应用进程并重启
+      if (processes.includes('react-scripts')) {
+        // React应用重启
+        await this.restartReactApp(projectId);
+      } else if (processes.includes('next')) {
+        // Next.js应用重启
+        await this.restartNextApp(projectId);
+      } else if (processes.includes('npm run dev')) {
+        // 通用开发服务器重启
+        await this.restartDevServer(projectId);
+      } else {
+        // 最后尝试软重启
+        await this.gracefulRestart(projectId);
+      }
       
       console.log(`容器应用重启完成: ${projectId}`);
     } catch (error) {
-      console.log(`应用重启信号发送失败（可能进程不存在）: ${error}`);
+      console.error(`应用重启失败: ${error}`);
+      // 重启失败时，尝试重新启动整个容器
+      await this.recoverContainer(projectId);
+    }
+  }
+
+  // React应用专用重启
+  private async restartReactApp(projectId: string): Promise<void> {
+    try {
+      // 查找react-scripts进程PID
+      const findCommand = ['pgrep', '-f', 'react-scripts'];
+      const pid = await this.execInPod(projectId, findCommand);
+      
+      if (pid.trim()) {
+        // 发送SIGTERM信号而不是SIGKILL
+        const killCommand = ['kill', '-TERM', pid.trim()];
+        await this.execInPod(projectId, killCommand);
+        
+        // 等待进程优雅关闭
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+    } catch (error) {
+      console.log('React应用重启信号发送完成');
+    }
+  }
+
+  // Next.js应用专用重启
+  private async restartNextApp(projectId: string): Promise<void> {
+    try {
+      const findCommand = ['pgrep', '-f', 'next'];
+      const pid = await this.execInPod(projectId, findCommand);
+      
+      if (pid.trim()) {
+        const killCommand = ['kill', '-TERM', pid.trim()];
+        await this.execInPod(projectId, killCommand);
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+    } catch (error) {
+      console.log('Next.js应用重启信号发送完成');
+    }
+  }
+
+  // 开发服务器重启
+  private async restartDevServer(projectId: string): Promise<void> {
+    try {
+      // 查找npm进程但保留PID 1
+      const findCommand = ['pgrep', '-f', 'npm.*dev'];
+      const pid = await this.execInPod(projectId, findCommand);
+      
+      if (pid.trim() && pid.trim() !== '1') {
+        const killCommand = ['kill', '-TERM', pid.trim()];
+        await this.execInPod(projectId, killCommand);
+        await new Promise(resolve => setTimeout(resolve, 3000));
+      }
+    } catch (error) {
+      console.log('开发服务器重启信号发送完成');
+    }
+  }
+
+  // 优雅重启
+  private async gracefulRestart(projectId: string): Promise<void> {
+    try {
+      // 发送HUP信号尝试热重载
+      const reloadCommand = ['pkill', '-HUP', '-f', 'node'];
+      await this.execInPod(projectId, reloadCommand);
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    } catch (error) {
+      console.log('优雅重启完成');
+    }
+  }
+
+  // 容器恢复机制
+  private async recoverContainer(projectId: string): Promise<void> {
+    try {
+      console.log(`尝试恢复容器: ${projectId}`);
+      
+      // 检查容器状态
+      const podStatus = await this.getPodStatus(projectId);
+      if (podStatus?.status?.phase !== 'Running') {
+        console.log('容器已停止，无需恢复');
+        return;
+      }
+
+      // 尝试重新运行启动脚本
+      const restartCommand = ['sh', '-c', 'cd /app && npm run dev 2>&1 &'];
+      await this.execInPod(projectId, restartCommand);
+      
+      console.log('容器恢复完成');
+    } catch (error) {
+      console.error('容器恢复失败:', error);
+      throw error;
     }
   }
 
@@ -845,18 +842,10 @@ tail -f /dev/null
     return 30000 + Math.abs(hash % 2768);
   }
 
-  // 根据运行时选择镜像
+  // 根据运行时选择镜像 - 只支持Next.js
   private getImageByRuntime(runtime: string): string {
-    const imageMap: Record<string, string> = {
-      'node': 'node:18-alpine',
-      'python': 'python:3.9-alpine',
-      'java': 'openjdk:11-jre-slim',
-      'go': 'golang:1.19-alpine',
-      'php': 'php:8.1-apache',
-      'ruby': 'ruby:3.1-alpine',
-    };
-
-    return imageMap[runtime] || 'node:18-alpine';
+    // 只支持Next.js，使用预构建镜像
+    return 'node:20-alpine';
   }
 }
 

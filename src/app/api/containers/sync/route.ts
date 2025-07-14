@@ -33,20 +33,26 @@ export async function POST(request: NextRequest) {
     updateContainerStatus(projectId, 'syncing', '正在同步项目文件...');
 
     try {
-      // 同步项目文件到容器
-      await containerManager.syncProjectFilesToContainer(projectId);
+      // 智能文件同步 - 检查是否有文件变更
+      const syncResult = await containerManager.syncProjectFilesToContainerSmart(projectId);
       
-      // 重启容器中的应用
-      await containerManager.restartContainerApp(projectId);
-      
-      // 等待应用重启
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      updateContainerStatus(projectId, 'running', '文件同步完成，应用已重启');
+      if (syncResult.hasChanges) {
+        // 只有文件变更时才重启应用
+        await containerManager.restartContainerApp(projectId);
+        
+        // 等待应用重启
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        
+        updateContainerStatus(projectId, 'running', `文件同步完成，${syncResult.changedFiles}个文件更新，应用已重启`);
+      } else {
+        updateContainerStatus(projectId, 'running', '无文件变更，跳过同步');
+      }
 
       return NextResponse.json({
         success: true,
-        message: '项目文件同步成功',
+        message: syncResult.hasChanges ? '项目文件同步成功' : '无需同步，文件无变更',
+        hasChanges: syncResult.hasChanges,
+        changedFiles: syncResult.changedFiles,
         timestamp: Date.now(),
       });
 

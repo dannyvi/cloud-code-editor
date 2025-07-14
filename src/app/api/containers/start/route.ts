@@ -57,15 +57,15 @@ export async function POST(request: NextRequest) {
       await containerManager.createIngress(projectId);
     }
 
-    // 异步处理容器启动和文件同步
+    // 立即开始文件同步，不要等待
     setTimeout(async () => {
       try {
         updateContainerStatus(projectId, 'syncing', '正在同步项目文件...');
         
-        // 等待容器完全启动
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        // 等待容器启动，但不要等太久
+        await new Promise(resolve => setTimeout(resolve, 2000));
         
-        // 同步项目文件到容器
+        // 立即同步项目文件到容器
         await containerManager.syncProjectFilesToContainer(projectId);
         
         updateContainerStatus(projectId, 'running', '容器启动成功');
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
         console.error(`项目 ${projectId} 启动失败:`, error);
         updateContainerStatus(projectId, 'error', '项目启动失败');
       }
-    }, 1000);
+    }, 100); // 减少延迟到100ms
 
     // 获取项目访问URL
     const projectUrl = containerManager.getProjectUrl(projectId);

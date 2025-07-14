@@ -22,7 +22,7 @@ export default function Home() {
   const [newProject, setNewProject] = useState({
     name: '',
     description: '',
-    template: 'vanilla-js' as Project['template']
+    template: 'next' as Project['template']
   });
 
   useEffect(() => {
@@ -56,7 +56,7 @@ export default function Home() {
       
       if (response.ok) {
         setShowCreateDialog(false);
-        setNewProject({ name: '', description: '', template: 'vanilla-js' });
+        setNewProject({ name: '', description: '', template: 'next' });
         loadProjects();
       }
     } catch (error) {
@@ -84,27 +84,11 @@ export default function Home() {
   };
 
   const getTemplateLabel = (template: string) => {
-    const labels: Record<string, string> = {
-      'vanilla-js': 'JavaScript',
-      'react': 'React',
-      'vue': 'Vue.js',
-      'node': 'Node.js',
-      'python': 'Python',
-      'next': 'Next.js'
-    };
-    return labels[template] || template;
+    return 'Next.js + Turbopack';
   };
 
   const getTemplateColor = (template: string) => {
-    const colors: Record<string, string> = {
-      'vanilla-js': 'bg-yellow-500',
-      'react': 'bg-blue-500',
-      'vue': 'bg-green-500',
-      'node': 'bg-green-600',
-      'python': 'bg-blue-600',
-      'next': 'bg-black'
-    };
-    return colors[template] || 'bg-gray-500';
+    return 'bg-black';
   };
 
   const formatDate = (dateString: string) => {
@@ -167,20 +151,12 @@ export default function Home() {
                     />
                   </div>
                   <div>
-                    <Label htmlFor="template">模板</Label>
-                    <Select value={newProject.template} onValueChange={(value) => setNewProject(prev => ({ ...prev, template: value as Project['template'] }))}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="vanilla-js">Vanilla JavaScript</SelectItem>
-                        <SelectItem value="react">React</SelectItem>
-                        <SelectItem value="vue">Vue.js</SelectItem>
-                        <SelectItem value="node">Node.js</SelectItem>
-                        <SelectItem value="python">Python</SelectItem>
-                        <SelectItem value="next">Next.js</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="template">项目模板</Label>
+                    <div className="flex items-center space-x-3 p-3 border rounded-md bg-gray-50">
+                      <div className="w-4 h-4 bg-black rounded"></div>
+                      <span className="font-medium">Next.js + Turbopack</span>
+                      <span className="text-sm text-gray-500 ml-auto">⚡ 极速开发</span>
+                    </div>
                   </div>
                   <div className="flex gap-2">
                     <Button onClick={createProject} disabled={creating || !newProject.name.trim()} className="flex-1">
