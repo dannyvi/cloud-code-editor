@@ -187,6 +187,7 @@ export class ProjectManager {
       {
         path: 'pages/index.js',
         content: `import { useState } from 'react';
+import './globals.css';
 
 export default function Home() {
   const [count, setCount] = useState(0);
@@ -254,6 +255,19 @@ const styles = {
         mime_type: 'application/javascript',
       },
       {
+        path: 'pages/globals.css',
+        content: `body {
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  margin: 0;
+  padding: 0;
+}`,
+        mime_type: 'text/css',
+      },
+      {
         path: 'pages/_app.js',
         content: `export default function App({ Component, pageProps }) {
   return <Component {...pageProps} />
@@ -265,6 +279,7 @@ const styles = {
         content: `/** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  devIndicators: false,
   experimental: {
     turbo: {
       loaders: {
