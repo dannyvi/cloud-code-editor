@@ -18,13 +18,17 @@ import {
   Zap,
   Terminal,
   Rocket,
-  CheckCircle2
+  CheckCircle2,
+  ChevronUp,
+  ChevronDown,
+  X
 } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { getContainerStatus } from '@/lib/realtime';
 
 interface PreviewFrameProps {
   projectId?: string;
+  onHidePreview?: () => void;
 }
 
 interface ContainerStatusData {
@@ -34,7 +38,7 @@ interface ContainerStatusData {
   details?: Record<string, unknown>;
 }
 
-export function PreviewFrame({ projectId }: PreviewFrameProps) {
+export function PreviewFrame({ projectId, onHidePreview }: PreviewFrameProps) {
   const [containerStatus, setContainerStatus] = useState<ContainerStatusData | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string>('');
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -44,6 +48,7 @@ export function PreviewFrame({ projectId }: PreviewFrameProps) {
   const [isAppReady, setIsAppReady] = useState<boolean>(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
+  const prevViewModeRef = useRef<'desktop' | 'tablet' | 'mobile'>(viewMode);
 
   // 获取容器日志
   const fetchLogs = async () => {
@@ -57,15 +62,20 @@ export function PreviewFrame({ projectId }: PreviewFrameProps) {
           const logLines = data.logs.split('\n').filter((line: string) => line.trim());
           setLogs(logLines);
           
-          // 检查日志中是否有应用启动成功的标志
-          const hasSuccessLog = logLines.some((line: string) => 
-            line.includes('ready') || 
-            line.includes('started') || 
-            line.includes('listening') ||
-            line.includes('server running') ||
-            line.includes('Local:') ||
-            line.includes('ready on')
-          );
+          // 检查日志中是否有应用启动成功的标志 - 更精确的Next.js检测
+          const hasSuccessLog = logLines.some((line: string) => {
+            const lowerLine = line.toLowerCase();
+            return lowerLine.includes('ready') || 
+                   lowerLine.includes('started') || 
+                   lowerLine.includes('listening') ||
+                   lowerLine.includes('server running') ||
+                   lowerLine.includes('local:') ||
+                   lowerLine.includes('ready on') ||
+                   lowerLine.includes('compiled') ||
+                   lowerLine.includes('turbopack') ||
+                   lowerLine.includes('next.js') ||
+                   (lowerLine.includes('http') && lowerLine.includes('3000'));
+          });
           
           if (hasSuccessLog && !isAppReady) {
             setIsAppReady(true);
@@ -75,6 +85,38 @@ export function PreviewFrame({ projectId }: PreviewFrameProps) {
       }
     } catch (error) {
       console.error('获取日志失败:', error);
+    }
+  };
+
+  // 检查URL是否可访问
+  const checkUrlAccessibility = async (url: string) => {
+    try {
+      // 使用fetch检查URL是否可访问
+      const response = await fetch(url, { 
+        method: 'HEAD', 
+        mode: 'no-cors',
+        cache: 'no-store'
+      });
+      
+      // 如果能访问到（无论状态码），说明应用已经启动
+      console.log('URL可访问性检查通过:', url);
+      if (!isAppReady) {
+        setIsAppReady(true);
+        console.log('通过URL检测，应用已就绪');
+      }
+    } catch (error) {
+      // 即使出错，我们也可以尝试其他方法
+      console.log('URL检测失败，尝试其他方法:', error);
+      
+      // 如果有预览URL，尝试简单的超时后设置为就绪
+      if (url && containerStatus?.status === 'running') {
+        setTimeout(() => {
+          if (!isAppReady && previewUrl) {
+            console.log('超时后设置应用就绪');
+            setIsAppReady(true);
+          }
+        }, 5000); // 5秒后自动设置为就绪
+      }
     }
   };
 
@@ -91,6 +133,9 @@ export function PreviewFrame({ projectId }: PreviewFrameProps) {
       if (status?.status === 'running' && status?.url) {
         console.log('设置预览URL:', status.url);
         setPreviewUrl(status.url);
+        
+        // 尝试直接检测URL是否可访问
+        checkUrlAccessibility(status.url);
       } else {
         console.log('清空预览URL, 状态:', status?.status, 'URL:', status?.url);
         setPreviewUrl('');
@@ -139,9 +184,30 @@ export function PreviewFrame({ projectId }: PreviewFrameProps) {
         setIsLoading(false);
       }, 15000);
       
-      return () => clearTimeout(loadingTimeout);
+      // 如果有URL且容器在运行，3秒后直接设置为就绪（兜底策略）
+      const readyTimeout = setTimeout(() => {
+        if (containerStatus?.status === 'running' && previewUrl && !isAppReady) {
+          console.log('兜底策略：强制设置应用就绪');
+          setIsAppReady(true);
+        }
+      }, 3000);
+      
+      return () => {
+        clearTimeout(loadingTimeout);
+        clearTimeout(readyTimeout);
+      };
     }
-  }, [previewUrl]);
+  }, [previewUrl, containerStatus?.status, isAppReady]);
+
+  // 当视图模式切换时，刷新iframe以恢复初始大小
+  useEffect(() => {
+    if (prevViewModeRef.current !== viewMode && previewUrl && iframeRef.current) {
+      console.log('视图模式切换，刷新iframe:', prevViewModeRef.current, '->', viewMode);
+      // 重新设置iframe src以触发重新加载
+      iframeRef.current.src = `${previewUrl}?t=${Date.now()}&mode=${viewMode}`;
+      prevViewModeRef.current = viewMode;
+    }
+  }, [viewMode, previewUrl]);
 
   // 当应用就绪时，自动刷新预览
   useEffect(() => {
@@ -407,45 +473,62 @@ export function PreviewFrame({ projectId }: PreviewFrameProps) {
     const isFullWidth = width === '100%';
     
     return (
-      <div className="h-full flex items-center justify-center bg-gray-50 p-4 relative">
-        <div 
-          className={`${isFullWidth ? 'w-full h-full' : ''} relative`}
-          style={isFullWidth ? {} : { width, height }}
-        >
-          <iframe
-            ref={iframeRef}
-            src={previewUrl}
-            className={`border-0 bg-white ${isFullWidth ? 'w-full h-full' : 'shadow-lg rounded-lg'}`}
-            style={isFullWidth ? {} : { width: '100%', height: '100%' }}
-            title="应用预览"
-            onLoad={() => {
-              console.log('iframe 加载完成');
-              setIsLoading(false);
-            }}
-            onError={() => {
-              console.log('iframe 加载失败');
-              setError('应用加载失败');
-              setIsLoading(false);
-            }}
-            allow="camera; microphone; geolocation; encrypted-media; fullscreen"
-            sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
-          />
-          {/* 加载状态覆盖层 */}
-          {isLoading && (
-            <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-10">
-              <div className="text-center">
-                <div className="w-8 h-8 mx-auto mb-2 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                <div className="text-sm text-gray-600">加载应用中...</div>
+      <div className="h-full flex flex-col bg-gray-50 relative">
+        {/* 预览容器 - 在固定高度内居中显示，如果超出则可滚动 */}
+        <div className="h-full flex items-center justify-center p-4 overflow-auto">
+          <div 
+            className={`${isFullWidth ? 'w-full h-full' : 'flex-shrink-0'} relative`}
+            style={isFullWidth 
+              ? {} 
+              : { 
+                  width, 
+                  height, 
+                  maxWidth: '100%'
+                }
+            }
+          >
+            <iframe
+              ref={iframeRef}
+              src={previewUrl}
+              className={`border-0 bg-white ${isFullWidth ? 'w-full h-full' : 'shadow-lg rounded-lg'}`}
+              style={isFullWidth ? {} : { width: '100%', height: '100%' }}
+              title="应用预览"
+              onLoad={() => {
+                console.log('iframe 加载完成');
+                setIsLoading(false);
+                // iframe成功加载也说明应用已就绪
+                if (!isAppReady) {
+                  setIsAppReady(true);
+                  console.log('通过iframe加载检测，应用已就绪');
+                }
+              }}
+              onError={() => {
+                console.log('iframe 加载失败');
+                setError('应用加载失败');
+                setIsLoading(false);
+              }}
+              allow="camera; microphone; geolocation; encrypted-media; fullscreen"
+              sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-modals"
+            />
+            {/* 加载状态覆盖层 */}
+            {isLoading && (
+              <div className="absolute inset-0 bg-white/80 backdrop-blur-sm flex items-center justify-center z-10">
+                <div className="text-center">
+                  <div className="w-8 h-8 mx-auto mb-2 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                  <div className="text-sm text-gray-600">加载应用中...</div>
+                </div>
               </div>
-            </div>
-          )}
-          {!isFullWidth && (
-            <div className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 text-xs text-gray-500">
-              {viewMode === 'tablet' && '768×1024'}
-              {viewMode === 'mobile' && '375×667'}
-            </div>
-          )}
+            )}
+          </div>
         </div>
+        
+        {/* 设备模式提示 - 只在非桌面模式显示 */}
+        {!isFullWidth && (
+          <div className="text-center py-2 text-xs text-gray-500 bg-gray-100 border-t">
+            {viewMode === 'tablet' && '📱 平板模式 768×1024'}
+            {viewMode === 'mobile' && '📱 手机模式 375×667'}
+          </div>
+        )}
       </div>
     );
   };
@@ -475,82 +558,203 @@ export function PreviewFrame({ projectId }: PreviewFrameProps) {
 
   return (
     <Card className="h-full border-0 rounded-none flex flex-col">
-      {/* 工具栏 - 只有在容器运行时显示 */}
+      {/* 极简工具栏 - 只有在容器运行时显示 */}
       {isContainerRunning && (
-        <div className="border-b p-4 space-y-4">
-          {/* URL栏和按钮 */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2 flex-1">
-              <Globe className="h-4 w-4 text-green-500" />
+        <div className="border-b px-2 py-0.5 bg-gray-50/50 flex-shrink-0">
+          <div className="flex items-center justify-between gap-1">
+            {/* 左侧：状态和URL */}
+            <div className="flex items-center gap-1 flex-1 min-w-0">
+              <Globe className="h-3 w-3 text-green-500 flex-shrink-0" />
               <Input
                 value={previewUrl}
                 onChange={(e) => setPreviewUrl(e.target.value)}
                 placeholder="应用地址"
-                className="h-8 text-xs font-mono"
+                className="h-5 text-xs font-mono bg-transparent border-0 px-1 py-0 flex-1"
                 readOnly
                 title={previewUrl}
               />
             </div>
-            <div className="flex items-center space-x-2 ml-4">
+            
+            {/* 右侧：操作按钮 */}
+            <div className="flex items-center gap-1">
+              {/* 刷新 */}
               <Button
                 onClick={refreshPreview}
                 size="sm"
-                variant="outline"
+                variant="ghost"
+                className="h-5 w-5 p-0"
                 disabled={isLoading}
+                title="刷新预览"
               >
-                <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`h-3 w-3 ${isLoading ? 'animate-spin' : ''}`} />
               </Button>
+              
+              {/* 新窗口打开 */}
               <Button
                 onClick={openInNewTab}
                 size="sm"
-                variant="outline"
+                variant="ghost"
+                className="h-5 w-5 p-0"
+                title="在新标签页打开"
               >
-                <ExternalLink className="h-4 w-4" />
+                <ExternalLink className="h-3 w-3" />
               </Button>
+              
+              {/* 视图模式切换 */}
+              <div className="flex border rounded overflow-hidden">
+                <Button
+                  onClick={() => setViewMode('desktop')}
+                  size="sm"
+                  variant={viewMode === 'desktop' ? 'default' : 'ghost'}
+                  className="h-6 w-6 p-0 rounded-none"
+                  title="桌面视图"
+                >
+                  <Monitor className="h-3 w-3" />
+                </Button>
+                <Button
+                  onClick={() => setViewMode('tablet')}
+                  size="sm"
+                  variant={viewMode === 'tablet' ? 'default' : 'ghost'}
+                  className="h-6 w-6 p-0 rounded-none border-l"
+                  title="平板视图"
+                >
+                  <Tablet className="h-3 w-3" />
+                </Button>
+                <Button
+                  onClick={() => setViewMode('mobile')}
+                  size="sm"
+                  variant={viewMode === 'mobile' ? 'default' : 'ghost'}
+                  className="h-6 w-6 p-0 rounded-none border-l"
+                  title="手机视图"
+                >
+                  <Smartphone className="h-3 w-3" />
+                </Button>
+              </div>
+              
+              {/* 隐藏预览 */}
+              {onHidePreview && (
+                <Button 
+                  onClick={onHidePreview}
+                  size="sm" 
+                  variant="ghost"
+                  className="h-6 w-6 p-0"
+                  title="隐藏预览面板"
+                >
+                  <ExternalLink className="h-3 w-3 rotate-180" />
+                </Button>
+              )}
             </div>
           </div>
-
-          {/* 视图模式切换 */}
-          <Tabs value={viewMode} onValueChange={(value) => setViewMode(value as 'desktop' | 'tablet' | 'mobile')}>
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="desktop" className="text-xs">
-                <Monitor className="h-3 w-3 mr-1" />
-                桌面
-              </TabsTrigger>
-              <TabsTrigger value="tablet" className="text-xs">
-                <Tablet className="h-3 w-3 mr-1" />
-                平板
-              </TabsTrigger>
-              <TabsTrigger value="mobile" className="text-xs">
-                <Smartphone className="h-3 w-3 mr-1" />
-                手机
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
         </div>
       )}
 
-      {/* 预览内容 */}
-      <div className="flex-1 overflow-hidden">
+      {/* 预览内容区域 - 使用calc确保为控制台预留空间 */}
+      <div 
+        className="overflow-hidden"
+        style={{ 
+          height: isContainerRunning 
+            ? 'calc(100% - 32px - 48px)' // 减去工具栏(32px)和控制台最小高度(48px)
+            : 'calc(100% - 32px)' // 只减去工具栏高度
+        }}
+      >
         {renderPreviewContent()}
       </div>
-
-      {/* 状态栏 - 只有在容器运行时显示 */}
+      
+      {/* 固定在底部的状态/控制台tabs */}
       {isContainerRunning && (
-        <div className="border-t px-4 py-2 text-xs text-muted-foreground">
-          <div className="flex items-center justify-between">
-            <span>
-              {viewMode === 'desktop' && '桌面视图'}
-              {viewMode === 'tablet' && '平板视图 (768×1024)'}
-              {viewMode === 'mobile' && '手机视图 (375×667)'}
-            </span>
-            <span className="flex items-center space-x-2">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span>应用运行中</span>
-            </span>
-          </div>
+        <div className="flex-shrink-0">
+          <BottomTabs viewMode={viewMode} />
         </div>
       )}
     </Card>
+  );
+}
+
+// 可隐藏的底部状态/控制台tabs组件
+interface BottomTabsProps {
+  viewMode: 'desktop' | 'tablet' | 'mobile';
+}
+
+function BottomTabs({ viewMode }: BottomTabsProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [activeTab, setActiveTab] = useState('status');
+
+  const getViewModeInfo = () => {
+    switch (viewMode) {
+      case 'tablet':
+        return '平板 768×1024';
+      case 'mobile':
+        return '手机 375×667';
+      default:
+        return '桌面 100%';
+    }
+  };
+
+  return (
+    <div className="border-t bg-gray-50/50 flex-shrink-0">
+      {/* Tab栏 - 始终可见，更紧凑 */}
+      <div className="flex items-center justify-between px-2 py-0.5 text-xs min-h-[24px]">
+        <div className="flex items-center gap-1">
+          <Button
+            onClick={() => setActiveTab('status')}
+            size="sm"
+            variant={activeTab === 'status' ? 'default' : 'ghost'}
+            className="h-4 px-1.5 text-xs"
+          >
+            状态
+          </Button>
+          <Button
+            onClick={() => setActiveTab('console')}
+            size="sm"
+            variant={activeTab === 'console' ? 'default' : 'ghost'}
+            className="h-4 px-1.5 text-xs"
+          >
+            <Terminal className="h-2.5 w-2.5 mr-1" />
+            控制台
+          </Button>
+        </div>
+        
+        <div className="flex items-center gap-1">
+          <span className="text-gray-500 text-xs">{getViewModeInfo()}</span>
+          <Button
+            onClick={() => setIsExpanded(!isExpanded)}
+            size="sm"
+            variant="ghost"
+            className="h-4 w-4 p-0"
+            title={isExpanded ? '收起' : '展开'}
+          >
+            {isExpanded ? <ChevronDown className="h-2.5 w-2.5" /> : <ChevronUp className="h-2.5 w-2.5" />}
+          </Button>
+        </div>
+      </div>
+
+      {/* Tab内容区域 - 可隐藏，限制最大高度 */}
+      {isExpanded && (
+        <div className="border-t bg-white px-2 py-1.5 text-xs max-h-24 overflow-y-auto flex-shrink-0">
+          {activeTab === 'status' && (
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
+                <span className="text-green-700">应用运行中</span>
+              </div>
+              <div className="text-gray-500">
+                视图: {getViewModeInfo()}
+              </div>
+              <div className="text-gray-500">
+                更新: {new Date().toLocaleTimeString()}
+              </div>
+            </div>
+          )}
+          
+          {activeTab === 'console' && (
+            <div className="font-mono text-xs space-y-0.5 text-gray-600">
+              <div>Console logs will appear here...</div>
+              <div className="text-gray-400">// Future: Real-time console output</div>
+              <div className="text-gray-400">// Future: Error logs and warnings</div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }

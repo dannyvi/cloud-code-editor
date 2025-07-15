@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { CodeEditor } from '@/components/CodeEditor';
 import { FileExplorer } from '@/components/FileExplorer';
 import { PreviewFrame } from '@/components/PreviewFrame';
 import { Button } from '@/components/ui/button';
-import { Play, Save, Settings, Wifi, WifiOff, Square, RotateCcw, ArrowLeft, CheckCircle, Clock, ExternalLink, Copy, RefreshCw } from 'lucide-react';
+import { Play, Save, Settings, Wifi, WifiOff, Square, RotateCcw, ArrowLeft, CheckCircle, Clock, ExternalLink, Copy, RefreshCw, X } from 'lucide-react';
 import { RealtimeClient, syncFileUpdate, debounce, sendContainerOperation, getContainerStatus } from '@/lib/realtime';
 import { FileManager, FileTreeNode } from '@/lib/file-manager';
 import { ProjectManager, Project } from '@/lib/supabase';
@@ -19,7 +19,7 @@ export default function EditorPageContent() {
   const [fileTree, setFileTree] = useState<FileTreeNode[]>([]);
   const [currentFile, setCurrentFile] = useState<string>('');
   const [code, setCode] = useState<string>('');
-  const [isPreviewOpen, setIsPreviewOpen] = useState<boolean>(true);
+  const [previewMode, setPreviewMode] = useState<'open' | 'collapsed' | 'hidden'>('open');
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [containerStatus, setContainerStatus] = useState<string>('stopped');
   const [containerUrl, setContainerUrl] = useState<string>('');
@@ -27,12 +27,86 @@ export default function EditorPageContent() {
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   
+  // 面板宽度状态
+  const [fileExplorerWidth, setFileExplorerWidth] = useState<number>(256); // 256px
+  const [previewWidth, setPreviewWidth] = useState<number>(50); // 50%
+  const [isDragging, setIsDragging] = useState<string | null>(null);
+  const [isFileExplorerCollapsed, setIsFileExplorerCollapsed] = useState<boolean>(false);
+  
   const realtimeClientRef = useRef<RealtimeClient | null>(null);
   const lastSyncRef = useRef<string>(''); // 防止循环同步
   const isEditingRef = useRef<boolean>(false); // 跟踪编辑状态
   const lastEditTimeRef = useRef<number>(0); // 最后编辑时间
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null); // 同步定时器
   const editorVersionRef = useRef<number>(0); // 编辑器版本号
+  const containerRef = useRef<HTMLDivElement>(null); // 容器引用
+
+  // 优化的拖拽处理函数，使用 useCallback 避免重复创建
+  const handleMouseDown = useCallback((type: 'fileExplorer' | 'preview') => (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(type);
+    // Y2K 风格的拖拽光标
+    document.body.style.cursor = 'url("data:image/svg+xml,%3csvg width=\'32\' height=\'32\' xmlns=\'http://www.w3.org/2000/svg\'%3e%3cg fill=\'none\' stroke=\'%23d8b4fe\' stroke-width=\'2\'%3e%3cline x1=\'16\' y1=\'8\' x2=\'16\' y2=\'24\'/%3e%3cline x1=\'8\' y1=\'16\' x2=\'24\' y2=\'16\'/%3e%3c/g%3e%3c/svg%3e") 16 16, col-resize';
+    document.body.style.userSelect = 'none';
+    // 禁用页面过渡动画以提高拖拽性能
+    document.body.style.pointerEvents = 'none';
+  }, []);
+
+  // 双击折叠/展开
+  const handleDoubleClick = useCallback((type: 'fileExplorer' | 'preview') => () => {
+    if (type === 'fileExplorer') {
+      setIsFileExplorerCollapsed(!isFileExplorerCollapsed);
+    }
+  }, [isFileExplorerCollapsed]);
+
+  // 高性能拖拽移动处理函数
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isDragging || !containerRef.current) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    const containerRect = containerRef.current.getBoundingClientRect();
+    const containerWidth = containerRect.width;
+
+    if (isDragging === 'fileExplorer') {
+      // 文件浏览器宽度约束：最小200px，最大500px
+      const newWidth = Math.max(200, Math.min(500, e.clientX - containerRect.left));
+      // 使用 requestAnimationFrame 确保平滑更新
+      requestAnimationFrame(() => {
+        setFileExplorerWidth(newWidth);
+      });
+    } else if (isDragging === 'preview') {
+      const rightEdge = containerRect.right;
+      const previewPixelWidth = rightEdge - e.clientX;
+      // 预览面板宽度约束：最小25%，最大70%
+      const newPreviewWidth = Math.max(25, Math.min(70, (previewPixelWidth / containerWidth) * 100));
+      // 使用 requestAnimationFrame 确保平滑更新
+      requestAnimationFrame(() => {
+        setPreviewWidth(newPreviewWidth);
+      });
+    }
+  }, [isDragging]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(null);
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    document.body.style.pointerEvents = '';
+  }, []);
+
+  // 添加全局鼠标事件监听
+  useEffect(() => {
+    if (isDragging) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isDragging]);
 
   // 加载项目文件的函数
   const loadProjectFiles = async (projectIdParam: string) => {
@@ -499,53 +573,232 @@ export default function EditorPageContent() {
             </Button>
           )}
           
+          {previewMode === 'hidden' && (
+            <Button 
+              onClick={() => setPreviewMode('open')}
+              size="sm" 
+              variant="outline"
+              title="显示预览面板"
+            >
+              <ExternalLink className="h-4 w-4" />
+            </Button>
+          )}
+          
           <Button size="sm" variant="outline">
             <Settings className="h-4 w-4" />
           </Button>
         </div>
       </header>
 
-      <div className="flex-1 flex">
+      <div className="flex-1 flex" ref={containerRef}>
         {/* File Explorer */}
-        <div className="w-64 border-r bg-muted/10">
-          <FileExplorer 
-            fileTree={fileTree} 
-            onFileSelect={handleFileSelect} 
-            currentFile={currentFile}
-            projectId={projectId || ''}
-            onFileCreated={() => projectId && loadProjectFiles(projectId)}
+        <div 
+          className={`border-r bg-muted/10 flex-shrink-0 ${
+            isDragging ? '' : 'transition-all duration-300 ease-in-out'
+          }`}
+          style={{ width: isFileExplorerCollapsed ? '0px' : `${fileExplorerWidth}px` }}
+        >
+          {!isFileExplorerCollapsed && (
+            <FileExplorer 
+              fileTree={fileTree} 
+              onFileSelect={handleFileSelect} 
+              currentFile={currentFile}
+              projectId={projectId || ''}
+              onFileCreated={() => projectId && loadProjectFiles(projectId)}
+            />
+          )}
+        </div>
+
+        {/* File Explorer Resize Handle */}
+        <div 
+          className={`relative flex-shrink-0 group ${
+            isDragging === 'fileExplorer' ? 'w-2' : 'w-1'
+          } transition-all duration-200`}
+          title="拖拽调整宽度，双击折叠/展开"
+        >
+          {/* 扩展的拖拽区域 - 左右各延伸3px，使拖拽更容易 */}
+          <div 
+            className="absolute inset-0 -left-3 -right-3 cursor-col-resize"
+            onMouseDown={handleMouseDown('fileExplorer')}
+            onDoubleClick={handleDoubleClick('fileExplorer')}
           />
+          {/* 主拖拽区域 */}
+          <div className={`h-full cursor-col-resize transition-all duration-200 ${
+            isDragging === 'fileExplorer' 
+              ? 'bg-gradient-to-b from-cyan-300 via-purple-300 to-pink-300 w-full' 
+              : 'bg-border hover:bg-gradient-to-b hover:from-cyan-200 hover:to-purple-200 group-hover:w-1.5 w-full'
+          }`} />
+          
+          {/* 悬停时的视觉增强 */}
+          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200">
+            <div className="flex flex-col space-y-1">
+              <div className="w-0.5 h-2 bg-gradient-to-t from-pink-200 to-cyan-200 rounded-full shadow-sm"></div>
+              <div className="w-0.5 h-2 bg-gradient-to-t from-purple-200 to-blue-200 rounded-full shadow-sm"></div>
+              <div className="w-0.5 h-2 bg-gradient-to-t from-cyan-200 to-pink-200 rounded-full shadow-sm"></div>
+            </div>
+          </div>
+          
+          {/* 拖拽时的高亮边框和尺寸提示 */}
+          {isDragging === 'fileExplorer' && (
+            <>
+              <div className="absolute inset-0 border-2 border-gradient-to-r from-cyan-200 via-purple-200 to-pink-200 rounded-sm animate-pulse shadow-lg" 
+                   style={{
+                     borderImage: 'linear-gradient(45deg, #a5f3fc, #d8b4fe, #fbb6ce) 1',
+                     boxShadow: '0 0 20px rgba(165, 243, 252, 0.3), 0 0 40px rgba(216, 180, 254, 0.2)'
+                   }} />
+              {/* 梦幻星星效果 */}
+              <div className="absolute -top-1 -left-1 w-1 h-1 bg-cyan-300 rounded-full animate-ping opacity-75"></div>
+              <div className="absolute -bottom-1 -right-1 w-1 h-1 bg-pink-300 rounded-full animate-ping opacity-75 delay-300"></div>
+              <div className="absolute top-1/2 -left-1 w-0.5 h-0.5 bg-purple-300 rounded-full animate-pulse delay-150"></div>
+              <div className="absolute top-1/4 -right-1 w-0.5 h-0.5 bg-cyan-300 rounded-full animate-pulse delay-500"></div>
+              <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-cyan-200 via-purple-200 to-pink-200 text-gray-800 text-xs px-3 py-1.5 rounded-full shadow-lg whitespace-nowrap z-50 font-medium backdrop-blur-sm border border-white/30">
+                ✨ {fileExplorerWidth}px
+              </div>
+            </>
+          )}
         </div>
 
         {/* Code Editor */}
-        <div className="flex-1 flex flex-col">
+        <div 
+          className={`flex flex-col flex-1 min-w-0 ${
+            isDragging ? '' : 'transition-all duration-300 ease-in-out'
+          }`}
+          style={{ 
+            width: previewMode === 'open' 
+              ? `calc(${100 - previewWidth}% - ${isFileExplorerCollapsed ? 0 : fileExplorerWidth}px - 2px)` 
+              : previewMode === 'collapsed'
+              ? `calc(100% - ${isFileExplorerCollapsed ? 0 : fileExplorerWidth}px - 48px - 2px)` 
+              : `calc(100% - ${isFileExplorerCollapsed ? 0 : fileExplorerWidth}px - 1px)` 
+          }}
+        >
           <CodeEditor
             value={code}
             onChange={handleCodeChange}
             language={getLanguageFromFile(currentFile)}
-            theme="vs-dark"
+            theme="custom-light"
           />
         </div>
 
         {/* Preview Panel */}
-        {isPreviewOpen && (
-          <div className="w-1/2 border-l bg-background">
-            <div className="h-full flex flex-col">
-              <div className="border-b px-4 py-2 flex items-center justify-between">
-                <span className="text-sm font-medium">预览</span>
-                <Button 
-                  onClick={() => setIsPreviewOpen(false)}
-                  size="sm" 
-                  variant="outline"
-                >
-                  隐藏
-                </Button>
+        {previewMode !== 'hidden' && (
+          <>
+            {/* Preview Resize Handle - 只在展开时显示 */}
+            {previewMode === 'open' && (
+              <div 
+                className={`relative flex-shrink-0 group ${
+                  isDragging === 'preview' ? 'w-2' : 'w-1'
+                } transition-all duration-200`}
+                title="拖拽调整预览面板宽度"
+              >
+                {/* 扩展的拖拽区域 - 左右各延伸3px，使拖拽更容易 */}
+                <div 
+                  className="absolute inset-0 -left-3 -right-3 cursor-col-resize"
+                  onMouseDown={handleMouseDown('preview')}
+                />
+                {/* 主拖拽区域 */}
+                <div className={`h-full cursor-col-resize transition-all duration-200 ${
+                  isDragging === 'preview' 
+                    ? 'bg-gradient-to-b from-pink-300 via-purple-300 to-cyan-300 w-full' 
+                    : 'bg-border hover:bg-gradient-to-b hover:from-pink-200 hover:to-cyan-200 group-hover:w-1.5 w-full'
+                }`} />
+                
+                {/* 悬停时的视觉增强 */}
+                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all duration-200">
+                  <div className="flex flex-col space-y-1">
+                    <div className="w-0.5 h-2 bg-gradient-to-t from-cyan-200 to-pink-200 rounded-full shadow-sm"></div>
+                    <div className="w-0.5 h-2 bg-gradient-to-t from-purple-200 to-blue-200 rounded-full shadow-sm"></div>
+                    <div className="w-0.5 h-2 bg-gradient-to-t from-pink-200 to-cyan-200 rounded-full shadow-sm"></div>
+                  </div>
+                </div>
+                
+                {/* 拖拽时的高亮边框和尺寸提示 */}
+                {isDragging === 'preview' && (
+                  <>
+                    <div className="absolute inset-0 border-2 border-gradient-to-r from-pink-200 via-purple-200 to-cyan-200 rounded-sm animate-pulse shadow-lg" 
+                         style={{
+                           borderImage: 'linear-gradient(45deg, #fbb6ce, #d8b4fe, #a5f3fc) 1',
+                           boxShadow: '0 0 20px rgba(251, 182, 206, 0.3), 0 0 40px rgba(216, 180, 254, 0.2)'
+                         }} />
+                    {/* 梦幻星星效果 */}
+                    <div className="absolute -top-1 -left-1 w-1 h-1 bg-pink-300 rounded-full animate-ping opacity-75"></div>
+                    <div className="absolute -bottom-1 -right-1 w-1 h-1 bg-cyan-300 rounded-full animate-ping opacity-75 delay-300"></div>
+                    <div className="absolute top-1/2 -left-1 w-0.5 h-0.5 bg-purple-300 rounded-full animate-pulse delay-150"></div>
+                    <div className="absolute top-3/4 -right-1 w-0.5 h-0.5 bg-pink-300 rounded-full animate-pulse delay-500"></div>
+                    <div className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-pink-200 via-purple-200 to-cyan-200 text-gray-800 text-xs px-3 py-1.5 rounded-full shadow-lg whitespace-nowrap z-50 font-medium backdrop-blur-sm border border-white/30">
+                      💫 {Math.round(previewWidth)}%
+                    </div>
+                  </>
+                )}
               </div>
-              <PreviewFrame projectId={projectId || ''} />
+            )}
+            
+            <div 
+              className={`bg-background flex-shrink-0 ${
+                isDragging ? '' : 'transition-all duration-300 ease-in-out'
+              }`}
+              style={{ 
+                width: previewMode === 'open' 
+                  ? `${previewWidth}%` 
+                  : '48px' // 折叠时的窄边栏宽度
+              }}
+            >
+              {previewMode === 'open' ? (
+                <PreviewFrame 
+                  projectId={projectId || ''} 
+                  onHidePreview={() => setPreviewMode('collapsed')}
+                />
+              ) : (
+                <CollapsedPreviewPanel 
+                  onExpand={() => setPreviewMode('open')}
+                  onHide={() => setPreviewMode('hidden')}
+                />
+              )}
             </div>
-          </div>
+          </>
         )}
       </div>
+    </div>
+  );
+}
+
+// 折叠的预览面板组件
+interface CollapsedPreviewPanelProps {
+  onExpand: () => void;
+  onHide: () => void;
+}
+
+function CollapsedPreviewPanel({ onExpand, onHide }: CollapsedPreviewPanelProps) {
+  return (
+    <div className="h-full w-full bg-gray-50 border-l flex flex-col items-center justify-start py-4 gap-2">
+      {/* 展开按钮 */}
+      <Button
+        onClick={onExpand}
+        size="sm"
+        variant="ghost"
+        className="h-8 w-8 p-0 rotate-90"
+        title="展开预览面板"
+      >
+        <ExternalLink className="h-4 w-4" />
+      </Button>
+      
+      {/* 预览标识 */}
+      <div 
+        className="text-xs text-gray-500 font-medium tracking-wider"
+        style={{ writingMode: 'vertical-rl', textOrientation: 'mixed' }}
+      >
+        预览
+      </div>
+      
+      {/* 完全隐藏按钮 */}
+      <Button
+        onClick={onHide}
+        size="sm"
+        variant="ghost"
+        className="h-6 w-6 p-0 mt-auto mb-4"
+        title="完全隐藏预览面板"
+      >
+        <X className="h-3 w-3" />
+      </Button>
     </div>
   );
 }
